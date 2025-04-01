@@ -1,71 +1,70 @@
 import tkinter as tk
-from tkinter import ttk
-from tkcalendar import DateEntry
-from datetime import datetime
-from ..core import loader, analyzer, generator
-from ..optimization.strategies import StrategyOptimizer
-from .tabs.optimization_tab import OptimizationTab
+from tkinter import ttk, messagebox
+from datetime import date
+from src.core.loader import load_estrazioni_multifile, filtra_per_data
+from src.core.generator import GeneratorePesato
 
-class MainWindow:
-    def __init__(self, master, start_year=None):
-        self.master = master
-        self.start_year = start_year
-        self.estrazioni = loader.load_estrazioni_filtered("./data", start_year)
-        self.optimizer = StrategyOptimizer("./data", start_year)
+class MainWindow(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Senalox 2.0")
+        self.geometry("800x600")
         
-        self._configure_window()
-        self._create_widgets()
-
-    def _configure_window(self):
-        self.master.title("Senalox 2.0 - SuperEnalotto Analyzer")
-        self.master.geometry("1200x800")
-        self.master.minsize(800, 600)
-
-    def _create_widgets(self):
-        self.notebook = ttk.Notebook(self.master)
-        self.notebook.pack(expand=True, fill='both')
+        self.estrazioni_full = []
+        self.estrazioni_2009 = []
+        self.generatore = None
         
-        self._create_generation_tabs()
-        self._create_optimization_tab()
-        self._create_analysis_tabs()
+        self.crea_interfaccia()
+        self.carica_dati()
 
-    def _create_generation_tabs(self):
-        methods = [
-            ("Frequenze", lambda: generator.genera_sestina_pesata(self.estrazioni)),
-            ("Ritardi", lambda: generator.genera_sestina_pesata(
-                self.estrazioni, 
-                {'ritardo': 1.0}
-            )),
-            ("Combinata", lambda: generator.genera_sestina_pesata(
-                self.estrazioni, 
-                {'frequenza': 0.5, 'ritardo': 0.5}
-            ))
-        ]
+    def crea_interfaccia(self):
+        # Frame principale
+        main_frame = ttk.Frame(self)
+        main_frame.pack(expand=True, fill='both', padx=10, pady=10)
         
-        for name, func in methods:
-            frame = ttk.Frame(self.notebook)
-            self._add_generation_ui(frame, name, func)
-            self.notebook.add(frame, text=name)
-
-    def _add_generation_ui(self, frame, title, generator_func):
-        ttk.Label(frame, text=title, font=('Arial', 14)).pack(pady=10)
-        result_text = tk.Text(frame, height=2, font=('Arial', 12))
-        result_text.pack(pady=10)
+        # Pulsanti modalità
+        ttk.Button(main_frame, text="Modalità FULL", 
+                 command=lambda: self.avvia_generazione('full')).pack(pady=5)
+        ttk.Button(main_frame, text="Modalità 2009", 
+                 command=lambda: self.avvia_generazione('2009')).pack(pady=5)
         
-        def generate():
-            try:
-                numbers = sorted(generator_func())
-                result_text.delete(1.0, tk.END)
-                result_text.insert(tk.END, ", ".join(map(str, numbers)))
-            except Exception as e:
-                messagebox.showerror("Errore", str(e))
-                
-        ttk.Button(frame, text="Genera", command=generate).pack()
+        # Risultato
+        self.risultato_label = ttk.Label(main_frame, text="", font=('Arial', 14))
+        self.risultato_label.pack(pady=20)
+        
+        # Console log
+        self.log_text = tk.Text(main_frame, height=10, state='disabled')
+        self.log_text.pack(fill='x')
 
-    def _create_optimization_tab(self):
-        optimization_frame = OptimizationTab(self.notebook, self.optimizer)
-        self.notebook.add(optimization_frame, text="Ottimizzazione")
+    def carica_dati(self):
+        self.log("Caricamento dati in corso...")
+        try:
+            self.estrazioni_full = load_estrazioni_multifile()
+            data_2009 = date(2009, 7, 1)
+            self.estrazioni_2009 = filtra_per_data(self.estrazioni_full, data_2009)
+            self.log("Dati caricati correttamente!")
+        except Exception as e:
+            messagebox.showerror("Errore", str(e))
 
-    def _create_analysis_tabs(self):
-        # Implementa le schede di analisi esistenti
-        pass
+    def avvia_generazione(self, modalita):
+        estrazioni = self.estrazioni_2009 if modalita == '2009' else self.estrazioni_full
+        if not estrazioni:
+            messagebox.showwarning("Attenzione", "Nessun dato disponibile")
+            return
+            
+        try:
+            self.generatore = GeneratorePesato(estrazioni)
+            sestina = self.generatore.genera_sestina_pesata()
+            self.risultato_label.config(
+                text=f"Sestina generata ({modalita}):\n{', '.join(map(str, sestina))}"
+            )
+            self.log(f"Generazione {modalita} completata")
+        except Exception as e:
+            messagebox.showerror("Errore", str(e))
+
+    def log(self, messaggio):
+        self.log_text.configure(state='normal')
+        self.log_text.insert('end', f"> {messaggio}\n")
+        self.log_text.see('end')
+        self.log_text.configure(state='disabled')
+
